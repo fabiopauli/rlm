@@ -291,7 +291,7 @@ class RecursiveLanguageModel:
             'merge_dicts': self.aggregation_helper.merge_dicts,
 
             # Verification (returns tuple: (is_valid, explanation))
-            'verify_answer': lambda answer, prompt: self.verification_helper.verify_answer(
+            'verify_answer': lambda answer, prompt="Verify if the following answer is correct based on the context": self.verification_helper.verify_answer(
                 answer, prompt, self._llm_query
             ),
             # Consensus check (returns tuple: (answer, confidence))

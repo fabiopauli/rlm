@@ -103,16 +103,20 @@ Rlm/
 # Install uv if you haven't already
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install dependencies
-uv pip install -r requirements.txt
+# Sync dependencies (recommended - uses uv.lock for reproducibility)
+uv sync
 
-# Install in development mode
+# Or install in editable mode
 uv pip install -e .
 ```
 
 ### Or install with pip
 
 ```bash
+# Install dependencies and package in editable mode
+pip install -e .
+
+# Or install from requirements.txt
 pip install -r requirements.txt
 pip install -e .
 ```
