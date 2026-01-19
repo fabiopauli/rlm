@@ -1,0 +1,12 @@
+# Core dependencies
+openai
+tiktoken  # For token-based chunking
+
+# Multi-provider support
+xai-sdk  # For xAI Grok models support
+
+# Optional dependencies for advanced features
+# Uncomment if needed:
+# anthropic>=0.18.0  # For Anthropic models support
+# requests>=2.31.0   # For HTTP requests
+# aiohttp>=3.9.0     # For async operations
