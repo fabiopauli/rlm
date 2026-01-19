@@ -284,6 +284,9 @@ class RecursiveLanguageModel:
             'regex_search': self.search_helper.regex_search,
             'find_sections': self.search_helper.find_sections,
             'keyword_filter': self.search_helper.keyword_filter,
+            'find_tags': self.search_helper.find_tags,
+            'extract_between_markers': self.search_helper.extract_between_markers,
+            'count_occurrences': self.search_helper.count_occurrences,
 
             # Aggregation
             'aggregate_results': self.aggregation_helper.aggregate_results,
@@ -343,10 +346,23 @@ The full context is available as the variable 'context' (a string, potentially v
 - smart_truncate(text, max_length, suffix="...")
 
 ### Search & Filtering:
-- regex_search(pattern, text, max_matches=None, return_positions=False)
+- find_tags(text, tag_pattern, extract_content=True, content_delimiter=None, max_results=None)
+  Fast string-based tag finder (NOT regex). Use this for finding markers like "[KEY POINT]".
+  Returns: List of dicts with keys 'tag', 'content', 'start', 'end'.
+  Example: find_tags(text, "[KEY POINT]") finds all [KEY POINT] tags
+  More reliable than regex for simple tag matching. PREFER THIS over regex_search for tags.
+- extract_between_markers(text, start_marker, end_marker, include_markers=False, max_results=None)
+  Extract content between paired markers (e.g., "[DOC START]" and "[DOC END]").
+  Returns: List of dicts with keys 'content', 'start', 'end'.
+- count_occurrences(text, pattern, overlapping=False)
+  Fast string-based counting (NOT regex). Much faster than regex for simple patterns.
+  Returns: Integer count of occurrences.
+- regex_search(pattern, text, max_matches=None, return_positions=False, flags=0)
+  Regex-based search with optional flags (re.MULTILINE, re.DOTALL, re.IGNORECASE).
   When return_positions=True: Returns List of dicts with keys 'match', 'start', 'end'.
   Example: {{'match': 'found text', 'start': 100, 'end': 110}}
   When return_positions=False: Returns List of matched strings.
+  For simple tag matching, PREFER find_tags() instead for better reliability.
 - find_sections(text, section_pattern=r'^#+\s+(.+)$', include_content=True)
 - keyword_filter(text, keywords, context_chars=200, case_sensitive=False)
   Returns: List of (snippet, position) tuples. Access snippet with item[0], position with item[1].
@@ -375,12 +391,14 @@ If you already found data via regex/search, trust that data - don't second-guess
 
 ## Emergent Behavior Patterns to Emulate:
 
-1. **Filtering + Probing**: Use regex_search/keyword_filter to find candidates, then llm_query to verify
-2. **Recursive Chunking**: Use chunk_text or recursive_split, process each chunk with llm_query
-3. **Classification + Aggregation**: Chunk, classify each with llm_query, aggregate with count_frequencies
-4. **Self-Verification**: Extract answer, use verify_answer to cross-check
-5. **Map-Reduce Pattern**: Split into items, map llm_query over each, reduce results
-6. **Consensus Checking**: Use consensus_check for higher confidence
+1. **Tag-Based Extraction**: Use find_tags() to find structured markers (e.g., "[KEY POINT]"), then process content
+2. **Filtering + Probing**: Use find_tags/keyword_filter to find candidates, then llm_query to verify
+3. **Recursive Chunking**: Use chunk_text or recursive_split, process each chunk with llm_query
+4. **Classification + Aggregation**: Chunk, classify each with llm_query, aggregate with count_frequencies
+5. **Self-Verification**: Extract answer, use verify_answer to cross-check
+6. **Map-Reduce Pattern**: Split into items, map llm_query over each, reduce results
+7. **Consensus Checking**: Use consensus_check for higher confidence
+8. **Marker Extraction**: Use extract_between_markers() to extract sections between paired delimiters
 
 ## Best Practices:
 - Never load entire context into llm_query—always slice/filter first

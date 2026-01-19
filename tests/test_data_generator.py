@@ -351,6 +351,226 @@ Key information is marked between --- BEGIN KEY INFORMATION --- and
     return context, expected_answer, question
 
 
+def _create_technical_report(
+    doc_num: int,
+    report_type: str,
+    key_points: List[str],
+    target_chars: int
+) -> str:
+    """
+    Create a single technical report with key points and filler content.
+
+    Args:
+        doc_num: Document number
+        report_type: Type of report (e.g., "Q4 Performance Review")
+        key_points: List of key point strings to include
+        target_chars: Target character count for the document
+
+    Returns:
+        Formatted document string
+    """
+    sections = []
+
+    # Document header
+    header = f"""[DOCUMENT START - Document {doc_num}: {report_type}]
+
+# {report_type}
+
+## Executive Summary
+
+"""
+    sections.append(header)
+
+    # Add first key point in executive summary
+    if len(key_points) > 0:
+        sections.append(f"[KEY POINT] {key_points[0]}\n\n")
+        sections.append(generate_lorem_paragraph(40, 80) + "\n\n")
+
+    # Add multiple sections with key points distributed
+    section_count = random.randint(3, 5)
+    key_point_idx = 1
+
+    section_titles = [
+        "Performance Metrics",
+        "Technical Analysis",
+        "Key Findings",
+        "Recommendations",
+        "Data Overview",
+        "System Performance",
+        "Implementation Status",
+        "Results and Outcomes",
+        "Risk Assessment",
+        "Future Outlook"
+    ]
+
+    for i in range(section_count):
+        section_title = random.choice(section_titles)
+        sections.append(f"## {section_title}\n\n")
+
+        # Add 2-4 paragraphs per section
+        for _ in range(random.randint(2, 4)):
+            sections.append(generate_lorem_paragraph(50, 100) + "\n\n")
+
+            # Occasionally insert a key point
+            if key_point_idx < len(key_points) and random.random() < 0.5:
+                sections.append(f"[KEY POINT] {key_points[key_point_idx]}\n\n")
+                sections.append(generate_lorem_paragraph(30, 60) + "\n\n")
+                key_point_idx += 1
+
+    # Add remaining key points in conclusion
+    if key_point_idx < len(key_points):
+        sections.append("## Conclusion\n\n")
+        sections.append(generate_lorem_paragraph(40, 60) + "\n\n")
+        while key_point_idx < len(key_points):
+            sections.append(f"[KEY POINT] {key_points[key_point_idx]}\n\n")
+            sections.append(generate_lorem_paragraph(20, 40) + "\n\n")
+            key_point_idx += 1
+
+    # Document footer
+    sections.append(f"\n[DOCUMENT END]\n\n")
+
+    # Combine all sections
+    document = "".join(sections)
+
+    # Pad with filler if needed to reach target size
+    current_size = len(document)
+    if current_size < target_chars:
+        sections_to_add = (target_chars - current_size) // 800  # Approximate chars per paragraph
+        filler_section = "\n## Additional Details\n\n"
+        for _ in range(sections_to_add):
+            filler_section += generate_lorem_paragraph(80, 120) + "\n\n"
+        # Insert filler before the end marker
+        document = document.replace("[DOCUMENT END]", filler_section + "[DOCUMENT END]")
+
+    return document
+
+
+def generate_summarization_prompt(
+    target_tokens: int = 100_000,
+    num_documents: int = None
+) -> Tuple[str, List[str], str]:
+    """
+    Generate a long text summarization test with multiple technical reports.
+
+    This creates 4-6 realistic technical reports with clear structure and key points
+    that need to be summarized. Each document includes:
+    - Clear document boundaries with [DOCUMENT START] and [DOCUMENT END] markers
+    - Key points marked with [KEY POINT] tags
+    - Realistic filler content
+    - Technical details (metrics, percentages, numbers)
+
+    Args:
+        target_tokens: Approximate number of tokens (chars/4), default 100k
+        num_documents: Number of documents to generate (default: 4-6 random)
+
+    Returns:
+        Tuple of (context, expected_key_points, task)
+        - context: All technical reports concatenated
+        - expected_key_points: List of key information strings
+        - task: The summarization task description
+    """
+    if num_documents is None:
+        num_documents = random.randint(4, 6)
+
+    # Define technical reports with key points
+    report_templates = [
+        {
+            "type": "Q4 Financial Performance Review",
+            "key_points": [
+                "Q4 revenue increased by 23% to $4.2M compared to Q3",
+                "Customer churn reduced from 8% to 3% through improved support",
+                "Operating margin improved to 18.5% from 15.2% previous quarter"
+            ]
+        },
+        {
+            "type": "Engineering System Update",
+            "key_points": [
+                "New API deployed with 99.9% uptime across all regions",
+                "Migration to microservices architecture completed ahead of schedule",
+                "Database query performance improved by 40% through indexing optimization"
+            ]
+        },
+        {
+            "type": "Product Development Roadmap",
+            "key_points": [
+                "Feature X launching in Q1 2026 with beta testing complete",
+                "Beta testing showed 85% user satisfaction rate",
+                "Mobile app development on track for March 2026 release"
+            ]
+        },
+        {
+            "type": "Customer Analytics Report",
+            "key_points": [
+                "Active user base grew to 125,000 users (up 15% month-over-month)",
+                "Average session duration increased to 18 minutes from 12 minutes",
+                "Net Promoter Score improved to 67 from 54"
+            ]
+        },
+        {
+            "type": "Infrastructure Security Audit",
+            "key_points": [
+                "Zero critical vulnerabilities found in latest security audit",
+                "SSL certificate renewal automated for all 47 services",
+                "Multi-factor authentication adoption reached 92% of users"
+            ]
+        },
+        {
+            "type": "Marketing Campaign Analysis",
+            "key_points": [
+                "Email campaign achieved 28% open rate and 6.5% click-through rate",
+                "Social media engagement up 156% following new content strategy",
+                "Cost per acquisition reduced to $45 from $78"
+            ]
+        },
+    ]
+
+    # Select documents to include
+    selected_reports = random.sample(report_templates, min(num_documents, len(report_templates)))
+
+    # Calculate target size per document
+    target_chars = target_tokens * 4
+    chars_per_doc = target_chars // num_documents
+
+    # Generate all documents
+    documents = []
+    all_key_points = []
+
+    for idx, report in enumerate(selected_reports, 1):
+        doc = _create_technical_report(
+            doc_num=idx,
+            report_type=report["type"],
+            key_points=report["key_points"],
+            target_chars=chars_per_doc
+        )
+        documents.append(doc)
+        all_key_points.extend(report["key_points"])
+
+    # Create header
+    header = """# Technical Reports Collection
+
+This collection contains multiple technical reports from various departments.
+Each report is marked with [DOCUMENT START] and [DOCUMENT END] boundaries.
+Key findings and metrics are marked with [KEY POINT] tags.
+
+Please read all reports carefully to provide a comprehensive summary.
+
+---
+
+"""
+
+    # Combine all documents
+    context = header + "\n".join(documents)
+
+    # Create task
+    task = (
+        "Provide a comprehensive technical summary of all reports, highlighting the "
+        "key findings, metrics, and recommendations. Focus on the most important "
+        "information marked with [KEY POINT] tags."
+    )
+
+    return context, all_key_points, task
+
+
 def generate_edge_case_prompts() -> List[Dict[str, Any]]:
     """
     Generate a list of edge case test prompts.

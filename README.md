@@ -21,6 +21,7 @@ This implementation supports multiple LLM providers including OpenAI (GPT-4o, GP
 - **Recursive sub-calls**: Automatic decomposition with nested LLM invocations
 - **REPL-based execution**: Generate and execute Python code in a persistent environment
 - **Model flexibility**: Use different models for root and sub-calls (e.g., GPT-4o + GPT-4o-mini)
+- **Comprehensive testing**: Built-in test suite for needle-in-haystack, reasoning, and summarization tasks
 
 ### 📊 Metrics & Monitoring
 
@@ -73,13 +74,13 @@ Rlm/
 │   ├── grok_basic_example.py     # Grok integration
 │   ├── grok_reasoning_example.py # Grok reasoning metrics
 │   └── multi_provider_example.py # Cross-provider comparison
-├── tests/                        # Unit tests
+├── tests/                        # Comprehensive test suite
 │   ├── test_helpers.py           # Helper function tests
 │   ├── test_cache.py             # Caching tests
 │   ├── test_metrics.py           # Metrics tests
 │   ├── test_mock.py              # Mock/stub tests
-│   ├── test_rlm_comprehensive.py # Integration tests
-│   └── test_data_generator.py    # Test data generation
+│   ├── test_rlm_comprehensive.py # Long-context integration tests (256k needle, multi-needle, reasoning, summarization)
+│   └── test_data_generator.py    # Test data generation (technical reports, edge cases)
 ├── main.py                       # CLI entry point
 ├── Makefile                      # Development commands (uv-based)
 ├── pyproject.toml                # Package metadata
@@ -569,11 +570,153 @@ make examples
 # Run quickstart examples only
 make quickstart
 
-# Run tests
+# Run unit tests
 make test
 
 # Run with coverage
 make test-coverage
+
+# Run comprehensive integration tests
+uv run python tests/test_rlm_comprehensive.py
+```
+
+## Testing
+
+The RLM framework includes a comprehensive test suite to evaluate long-context capabilities across multiple dimensions.
+
+### Test Suite Overview
+
+Located in `tests/test_rlm_comprehensive.py`, the test suite includes:
+
+#### 1. **Needle in Haystack (256k tokens)**
+- Tests retrieval of specific information buried in massive contexts
+- Evaluates precision at different positions (start, middle, end)
+- **Use case**: Finding specific facts in huge documents
+
+#### 2. **Multi-Needle Retrieval**
+- Tests extraction of multiple distributed facts
+- Evaluates recall and completeness
+- **Use case**: Extracting all key data points from long reports
+
+#### 3. **Reasoning Tests**
+- Tests multi-hop reasoning over distributed information
+- Evaluates ability to connect facts across long contexts
+- **Complexity levels**: Simple, medium, complex
+- **Use case**: Answering questions requiring synthesis
+
+#### 4. **Edge Case Handling**
+- Tests contradictory information resolution
+- Tests handling of repeated vs. unique information
+- Tests numeric precision in calculations
+- **Use case**: Robust processing of real-world messy data
+
+#### 5. **Document Summarization** (New!)
+- Tests ability to summarize 25k-90k token documents
+- Evaluates key point coverage (70% threshold) and compression ratio (≤0.5)
+- Generates realistic technical reports with marked key points
+- **Use case**: Distilling long documents into concise summaries
+
+### Running Tests
+
+#### Quick Sanity Check
+```bash
+uv run python tests/test_rlm_comprehensive.py --quick
+```
+
+#### Run Specific Test Types
+```bash
+# Needle-in-haystack (256k tokens)
+uv run python tests/test_rlm_comprehensive.py --test needle --model grok-4-1-fast-reasoning --provider xai
+
+# Multi-needle retrieval
+uv run python tests/test_rlm_comprehensive.py --test multi --model grok-4-1-fast-reasoning --provider xai
+
+# Reasoning test
+uv run python tests/test_rlm_comprehensive.py --test reasoning --model grok-4-1-fast-reasoning --provider xai
+
+# Summarization test (50k-90k tokens recommended)
+uv run python tests/test_rlm_comprehensive.py --test summarization --model grok-4-1-fast-reasoning --provider xai
+
+# Edge cases
+uv run python tests/test_rlm_comprehensive.py --test edge --model grok-4-1-fast-reasoning --provider xai
+```
+
+#### Run Full Test Suite
+```bash
+# With all tests (expensive, ~$1-2)
+uv run python tests/test_rlm_comprehensive.py --model grok-4-1-fast-reasoning --provider xai
+
+# Skip expensive 256k test
+uv run python tests/test_rlm_comprehensive.py --model grok-4-1-fast-reasoning --provider xai --no-256k
+
+# Skip summarization test
+uv run python tests/test_rlm_comprehensive.py --model grok-4-1-fast-reasoning --provider xai --no-summarization
+
+# Minimal test suite (skip both)
+uv run python tests/test_rlm_comprehensive.py --model grok-4-1-fast-reasoning --provider xai --no-256k --no-summarization
+```
+
+#### Save Results
+```bash
+uv run python tests/test_rlm_comprehensive.py \
+  --model grok-4-1-fast-reasoning \
+  --provider xai \
+  --output results.json
+```
+
+### Test Results & Metrics
+
+Each test tracks comprehensive metrics:
+- **Cost**: Total USD spent on API calls
+- **Tokens**: Input/output token counts
+- **Sub-calls**: Number of recursive LLM invocations
+- **Iterations**: Number of code generation cycles
+- **Reasoning tokens**: Extended thinking tokens (for reasoning models)
+- **Duration**: Wall-clock time
+- **Pass/Fail**: Based on accuracy thresholds
+
+**Summarization-specific metrics:**
+- **Key point coverage**: Percentage of marked key points found in summary
+- **Compression ratio**: Summary length / context length
+- **Summary quality**: Pass requires 70%+ coverage AND ≤0.5 compression ratio
+
+### Supported Providers & Models
+
+#### OpenAI
+```bash
+# GPT-5 mini (recommended for testing)
+--model gpt-5-mini --provider openai
+
+# GPT-4o
+--model gpt-4o --provider openai
+```
+
+#### xAI (Grok)
+```bash
+# Grok 4 with fast reasoning (recommended)
+--model grok-4-1-fast-reasoning --provider xai
+
+# Grok 4 standard
+--model grok-4-1 --provider xai
+```
+
+### Cost Estimates
+
+Approximate costs per test (with Grok-4-1-fast-reasoning):
+
+| Test Type | Token Count | Typical Cost |
+|-----------|-------------|--------------|
+| Quick sanity | ~500 | $0.001 |
+| Multi-needle | ~100k | $0.01-0.05 |
+| Reasoning | ~50k | $0.01-0.03 |
+| Summarization | ~50-90k | $0.006-0.03 |
+| Edge cases | ~5k each | $0.005-0.01 |
+| Needle (256k) | ~256k | $0.10-0.30 |
+| **Full suite** | ~500k+ | **$0.20-0.50** |
+
+Use `--max-cost` to set spending limits:
+```bash
+uv run python tests/test_rlm_comprehensive.py --max-cost 1.0  # Stop if any test exceeds $1
 ```
 
 ## Troubleshooting
@@ -629,6 +772,8 @@ Contributions welcome! Areas for improvement:
 - [ ] Visualization of recursion trees
 - [ ] Performance benchmarks
 - [ ] Additional examples
+- [ ] Enhanced test coverage (100k+ token summarization, multi-document fusion)
+- [ ] Test result visualization and analytics
 
 ## Contact
 

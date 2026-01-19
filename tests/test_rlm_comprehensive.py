@@ -32,6 +32,7 @@ from tests.test_data_generator import (
     generate_multi_needle_prompt,
     generate_reasoning_test_prompt,
     generate_edge_case_prompts,
+    generate_summarization_prompt,
 )
 
 
@@ -359,6 +360,114 @@ class ComprehensiveTest:
         self.results.append(result)
         return result
 
+    def test_document_summarization(self, target_tokens: int = 100_000) -> TestResult:
+        """
+        Test: Summarize long documents while preserving key information.
+
+        Evaluates the model's ability to distill multiple long technical reports
+        into a concise summary that captures key points.
+        """
+        test_name = f"document_summarization_{target_tokens//1000}k"
+        result = TestResult(test_name)
+
+        self._log(f"\n{'='*60}")
+        self._log(f"TEST: {test_name}")
+        self._log(f"{'='*60}")
+
+        try:
+            # Generate test data
+            self._log(f"Generating {target_tokens//1000}k token summarization test...")
+            context, expected_key_points, task = generate_summarization_prompt(
+                target_tokens=target_tokens
+            )
+
+            result.expected = expected_key_points
+
+            self._log(f"Context size: {len(context):,} chars (~{len(context)//4:,} tokens)")
+            self._log(f"Number of key points: {len(expected_key_points)}")
+            self._log(f"Task: {task}")
+
+            # Create RLM and run
+            rlm = self._create_rlm()
+
+            start_time = time.time()
+            summary = rlm.run(
+                task=task,
+                context=context,
+                max_iterations=20,  # Summarization typically needs fewer iterations
+                verbose=self.verbose
+            )
+            result.duration = time.time() - start_time
+
+            result.result = summary
+            summary_str = str(summary).lower()
+
+            # Evaluate key point coverage
+            # Extract key terms from each key point for matching
+            found_key_points = 0
+            for key_point in expected_key_points:
+                # Extract significant terms (numbers, percentages, key words)
+                # For simplicity, check if key distinctive elements are present
+                key_point_lower = key_point.lower()
+
+                # Extract numbers and percentages
+                import re
+                numbers = re.findall(r'\d+(?:\.\d+)?%?', key_point)
+                words = [w for w in key_point_lower.split() if len(w) > 4 and w not in
+                        ['through', 'compared', 'across', 'showed', 'following', 'reached']]
+
+                # Check if at least one number AND one key word are present
+                has_number = any(num in summary_str for num in numbers)
+                has_keyword = any(word in summary_str for word in words[:3])  # Check top 3 words
+
+                if has_number or (len(numbers) == 0 and has_keyword):
+                    found_key_points += 1
+
+            coverage_percentage = (found_key_points / len(expected_key_points) * 100) if expected_key_points else 0
+
+            # Calculate compression ratio
+            compression_ratio = len(summary_str) / len(context) if len(context) > 0 else 0
+
+            # Store metrics
+            result.metrics = {
+                "total_cost": rlm.metrics.total_cost,
+                "total_tokens": rlm.metrics.total_tokens,
+                "sub_calls": rlm.metrics.sub_calls,
+                "iterations": rlm.metrics.iterations,
+                "reasoning_tokens": rlm.metrics.total_completion_reasoning_tokens,
+                "key_point_coverage": round(coverage_percentage, 1),
+                "key_points_found": found_key_points,
+                "total_key_points": len(expected_key_points),
+                "compression_ratio": round(compression_ratio, 3),
+                "summary_length_chars": len(summary_str),
+                "context_length_chars": len(context)
+            }
+
+            # Pass conditions:
+            # 1. Key point coverage >= 70%
+            # 2. Compression achieved (ratio <= 0.5, i.e., summary is at most 50% of input)
+            coverage_pass = coverage_percentage >= 70
+            compression_pass = compression_ratio <= 0.5
+
+            result.passed = coverage_pass and compression_pass
+
+            self._log(f"\n[{'PASS' if result.passed else 'FAIL'}] Summarization test")
+            self._log(f"Key point coverage: {coverage_percentage:.1f}% ({found_key_points}/{len(expected_key_points)})")
+            self._log(f"Compression ratio: {compression_ratio:.3f} (target: ≤0.5)")
+            self._log(f"Summary length: {len(summary_str):,} chars vs Context: {len(context):,} chars")
+
+            if not coverage_pass:
+                self._log(f"[FAIL] Coverage {coverage_percentage:.1f}% below 70% threshold")
+            if not compression_pass:
+                self._log(f"[FAIL] Compression ratio {compression_ratio:.3f} above 0.5 threshold")
+
+        except Exception as e:
+            result.error = str(e)
+            self._log(f"\n[ERROR] {e}")
+
+        self.results.append(result)
+        return result
+
     def run_quick_test(self) -> Dict[str, Any]:
         """
         Run a quick sanity check test (small context).
@@ -411,12 +520,13 @@ class ComprehensiveTest:
         self.results.append(result)
         return result.to_dict()
 
-    def run_all_tests(self, include_256k: bool = True) -> Dict[str, Any]:
+    def run_all_tests(self, include_256k: bool = True, include_summarization: bool = True) -> Dict[str, Any]:
         """
         Run the complete test suite.
 
         Args:
             include_256k: Include the 256k token test (expensive)
+            include_summarization: Include the 100k summarization test (expensive)
 
         Returns:
             Summary of all test results
@@ -443,6 +553,10 @@ class ComprehensiveTest:
         # Run edge cases
         for case in ["repeated_info", "contradictory_info"]:
             self.test_edge_case(case)
+
+        # Run summarization test if requested
+        if include_summarization:
+            self.test_document_summarization(target_tokens=100_000)
 
         # Generate summary
         return self.get_summary()
@@ -506,9 +620,14 @@ def main():
         help="Skip the 256k token test (saves cost)"
     )
     parser.add_argument(
+        "--no-summarization",
+        action="store_true",
+        help="Skip the 100k summarization test (saves cost)"
+    )
+    parser.add_argument(
         "--test",
         type=str,
-        choices=["needle", "multi", "reasoning", "edge"],
+        choices=["needle", "multi", "reasoning", "edge", "summarization"],
         help="Run a specific test type"
     )
     parser.add_argument(
@@ -593,8 +712,14 @@ def main():
         for case in generate_edge_case_prompts():
             test_suite.test_edge_case(case["name"])
         summary = test_suite.get_summary()
+    elif args.test == "summarization":
+        test_suite.test_document_summarization(target_tokens=100_000)
+        summary = test_suite.get_summary()
     else:
-        summary = test_suite.run_all_tests(include_256k=not args.no_256k)
+        summary = test_suite.run_all_tests(
+            include_256k=not args.no_256k,
+            include_summarization=not args.no_summarization
+        )
 
     # Save results if requested
     if args.output:

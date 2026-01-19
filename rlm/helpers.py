@@ -145,7 +145,8 @@ class SearchHelper:
         pattern: str,
         text: str,
         max_matches: Optional[int] = None,
-        return_positions: bool = False
+        return_positions: bool = False,
+        flags: int = 0
     ) -> List[Any]:
         """
         Perform regex search with optional limits.
@@ -155,13 +156,17 @@ class SearchHelper:
             text: Text to search
             max_matches: Maximum number of matches to return
             return_positions: If True, return dicts with 'match', 'start', 'end' keys
+            flags: Regex flags (e.g., re.MULTILINE, re.DOTALL, re.IGNORECASE)
 
         Returns:
             List of matches (strings) or match info dicts
+
+        Note:
+            For simple tag matching, prefer find_tags() for better reliability and performance.
         """
         matches = []
 
-        for i, match in enumerate(re.finditer(pattern, text)):
+        for i, match in enumerate(re.finditer(pattern, text, flags)):
             if max_matches and i >= max_matches:
                 break
 
@@ -270,6 +275,206 @@ class SearchHelper:
         snippets = sorted(set(snippets), key=lambda x: x[1])
 
         return snippets
+
+    @staticmethod
+    def find_tags(
+        text: str,
+        tag_pattern: str,
+        extract_content: bool = True,
+        content_delimiter: Optional[str] = None,
+        max_results: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find all occurrences of a tag pattern using fast string search.
+
+        This is more reliable than regex for simple tag matching and works
+        correctly even when multiple tags appear close together or on the same line.
+
+        Args:
+            text: Text to search
+            tag_pattern: Tag pattern to find (e.g., "[KEY POINT]")
+            extract_content: If True, extract content after the tag
+            content_delimiter: Stop extracting content at this delimiter
+                             (if None, extracts until next tag or end of text)
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of dictionaries with 'tag', 'content', 'start', 'end' keys
+
+        Example:
+            >>> text = "before [KEY POINT] first info [KEY POINT] second info end"
+            >>> tags = find_tags(text, "[KEY POINT]", extract_content=True)
+            >>> len(tags)
+            2
+            >>> "first info" in tags[0]['content']
+            True
+        """
+        results = []
+        start_pos = 0
+
+        while True:
+            # Find next occurrence
+            pos = text.find(tag_pattern, start_pos)
+            if pos == -1:
+                break
+
+            tag_end = pos + len(tag_pattern)
+            content = ""
+            content_end = tag_end
+
+            if extract_content:
+                # Extract content after tag
+                content_start = tag_end
+
+                # Find where content ends
+                if content_delimiter:
+                    # Stop at delimiter
+                    delim_pos = text.find(content_delimiter, content_start)
+                    if delim_pos != -1:
+                        content_end = delim_pos
+                    else:
+                        # Find next tag occurrence or end of text
+                        next_tag_pos = text.find(tag_pattern, tag_end)
+                        content_end = next_tag_pos if next_tag_pos != -1 else len(text)
+                else:
+                    # Stop at next tag or end of text
+                    next_tag_pos = text.find(tag_pattern, tag_end)
+                    content_end = next_tag_pos if next_tag_pos != -1 else len(text)
+
+                content = text[content_start:content_end].strip()
+
+            results.append({
+                'tag': tag_pattern,
+                'content': content,
+                'start': pos,
+                'end': content_end if extract_content else tag_end
+            })
+
+            # Check if we've hit max results
+            if max_results and len(results) >= max_results:
+                break
+
+            # Move past this tag for next search
+            start_pos = tag_end
+
+        return results
+
+    @staticmethod
+    def extract_between_markers(
+        text: str,
+        start_marker: str,
+        end_marker: str,
+        include_markers: bool = False,
+        max_results: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract content between paired start and end markers.
+
+        Args:
+            text: Text to search
+            start_marker: Starting marker (e.g., "[DOCUMENT START]")
+            end_marker: Ending marker (e.g., "[DOCUMENT END]")
+            include_markers: If True, include markers in extracted content
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of dictionaries with 'content', 'start', 'end' keys
+
+        Example:
+            >>> text = "[DOC START]content1[DOC END] [DOC START]content2[DOC END]"
+            >>> docs = extract_between_markers(text, "[DOC START]", "[DOC END]")
+            >>> len(docs)
+            2
+            >>> docs[0]['content']
+            'content1'
+        """
+        results = []
+        start_pos = 0
+
+        while True:
+            # Find next start marker
+            start_idx = text.find(start_marker, start_pos)
+            if start_idx == -1:
+                break
+
+            # Find corresponding end marker
+            end_search_start = start_idx + len(start_marker)
+            end_idx = text.find(end_marker, end_search_start)
+            if end_idx == -1:
+                # No matching end marker found
+                break
+
+            # Extract content
+            if include_markers:
+                content_start = start_idx
+                content_end = end_idx + len(end_marker)
+            else:
+                content_start = start_idx + len(start_marker)
+                content_end = end_idx
+
+            content = text[content_start:content_end]
+
+            results.append({
+                'content': content,
+                'start': start_idx,
+                'end': end_idx + len(end_marker)
+            })
+
+            # Check if we've hit max results
+            if max_results and len(results) >= max_results:
+                break
+
+            # Move past this pair for next search
+            start_pos = end_idx + len(end_marker)
+
+        return results
+
+    @staticmethod
+    def count_occurrences(
+        text: str,
+        pattern: str,
+        overlapping: bool = False
+    ) -> int:
+        """
+        Count occurrences of a pattern using fast string search.
+
+        Args:
+            text: Text to search
+            pattern: Pattern to count
+            overlapping: If True, count overlapping occurrences
+
+        Returns:
+            Number of occurrences
+
+        Example:
+            >>> text = "[KEY POINT] info [KEY POINT] more"
+            >>> count_occurrences(text, "[KEY POINT]")
+            2
+            >>> count_occurrences("aaa", "aa", overlapping=True)
+            2
+            >>> count_occurrences("aaa", "aa", overlapping=False)
+            1
+        """
+        if not pattern:
+            return 0
+
+        count = 0
+        start_pos = 0
+
+        while True:
+            pos = text.find(pattern, start_pos)
+            if pos == -1:
+                break
+
+            count += 1
+
+            # Move position for next search
+            if overlapping:
+                start_pos = pos + 1
+            else:
+                start_pos = pos + len(pattern)
+
+        return count
 
 
 class AggregationHelper:
