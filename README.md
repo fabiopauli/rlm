@@ -631,5 +631,3 @@ Contributions welcome! Areas for improvement:
 For issues and feature requests, please open an issue on GitHub.
 
 ---
-
-**Built with ❤️ for processing massive contexts recursively**
