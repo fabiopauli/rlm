@@ -217,13 +217,13 @@ def cmd_test(args):
 
 def cmd_info(args):
     """Show information about Rlm."""
-    from rlm import RecursiveLanguageModel
+    from rlm import RecursiveLanguageModel, __version__
     from rlm.providers import OpenAIProvider, XAIProvider
 
     print("Rlm - Recursive Language Model")
     print("================================")
     print()
-    print("Version: 0.1.0")
+    print(f"Version: {__version__}")
     print()
     print("Supported Providers:")
     print("  - OpenAI (gpt-5-mini, gpt-5-nano, gpt-4.1, gpt-4o)")
