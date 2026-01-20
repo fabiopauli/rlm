@@ -51,6 +51,22 @@ This implementation supports multiple LLM providers including OpenAI (GPT-4o, GP
 - **Verification**: Answer validation, consensus checking
 - **Recursion patterns**: Recursive split, map-reduce
 
+## Usage at a Glance
+
+**CLI (easiest):**
+```bash
+uv run python main.py run --task "Your question" --context-file data.txt
+```
+
+**Python API:**
+```python
+from rlm import RecursiveLanguageModel
+rlm = RecursiveLanguageModel(api_key="...", model="grok-4-1-fast-reasoning")
+result = rlm.run(task="Your question", context="Your long text...")
+```
+
+**See [CLI Usage](#cli-usage) for detailed examples with different models and options.**
+
 ## Repository Structure
 
 ```
@@ -160,6 +176,232 @@ print(f"Result: {result}")
 
 # View metrics
 rlm.print_metrics()
+```
+
+## CLI Usage
+
+The `main.py` CLI provides an easy way to run RLM tasks without writing Python code.
+
+### Basic Commands
+
+```bash
+# Show available models and configuration
+uv run python main.py info
+
+# Run a task with a text file
+uv run python main.py run --task "Your question" --context-file document.txt
+
+# Run a task with direct text
+uv run python main.py run --task "Your question" --context "Your text here"
+
+# Run tests
+uv run python main.py test --quick
+```
+
+### Using xAI Grok Models (Default)
+
+```bash
+# Basic usage with Grok (uses grok-4-1-fast-reasoning by default)
+uv run python main.py run \
+  --task "Find the secret code mentioned in the document" \
+  --context-file data.txt
+
+# Specify a different Grok model
+uv run python main.py run \
+  --task "Summarize the key findings" \
+  --context-file research_paper.txt \
+  --model grok-4 \
+  --provider xai
+
+# With custom settings
+uv run python main.py run \
+  --task "Extract all dates and events" \
+  --context-file historical_records.txt \
+  --model grok-4-1-fast-reasoning \
+  --max-cost 2.0 \
+  --max-iterations 30 \
+  --output results.json
+```
+
+### Using OpenAI Models
+
+```bash
+# Using GPT-4o
+uv run python main.py run \
+  --task "Analyze sentiment across all reviews" \
+  --context-file reviews.txt \
+  --model gpt-4o \
+  --provider openai
+
+# Using GPT-5 mini (fast and cheap)
+uv run python main.py run \
+  --task "Find references to project Apollo" \
+  --context-file transcripts.txt \
+  --model gpt-5-mini \
+  --provider openai \
+  --max-cost 1.0
+```
+
+### Direct Text Input
+
+```bash
+# Short context via command line
+uv run python main.py run \
+  --task "What is the main topic?" \
+  --context "Artificial intelligence is transforming how we process information..."
+
+# Multi-line text (using quotes)
+uv run python main.py run \
+  --task "Count how many people are mentioned" \
+  --context "John works in marketing. Sarah leads engineering. Bob manages operations."
+```
+
+### Advanced Options
+
+```bash
+# Save results to JSON file
+uv run python main.py run \
+  --task "Summarize findings" \
+  --context-file report.txt \
+  --output summary.json
+
+# Quiet mode (less verbose output)
+uv run python main.py run \
+  --task "Find the error code" \
+  --context-file logs.txt \
+  --quiet
+
+# Disable caching
+uv run python main.py run \
+  --task "Process each item uniquely" \
+  --context-file items.txt \
+  --no-cache
+
+# Set custom API key (instead of env variable)
+uv run python main.py run \
+  --task "Your task" \
+  --context-file data.txt \
+  --api-key "your-api-key-here"
+```
+
+### Available Models
+
+#### xAI Grok Models
+- `grok-4` - Standard Grok 4 model (128k context)
+- `grok-4-1-fast-reasoning` - Fast reasoning variant (recommended, cheaper)
+- `grok-4-1-fast-non-reasoning` - Non-reasoning variant
+- `grok-4-fast-reasoning` - Fast reasoning
+- `grok-4-fast-non-reasoning` - Fast non-reasoning
+- `grok-beta` - Beta version
+
+#### OpenAI Models
+- `gpt-5-mini` - GPT-5 mini (fast and cheap, recommended for testing)
+- `gpt-5-nano` - GPT-5 nano (ultra-fast)
+- `gpt-4.1` - GPT-4.1
+- `gpt-4o` - GPT-4 optimized
+
+### CLI Options Reference
+
+**Run Command Options:**
+```
+--task, -t          Task description/question (required)
+--context, -c       Direct text input
+--context-file, -f  Path to text file
+--provider, -p      LLM provider: 'xai' or 'openai' (default: xai)
+--model, -m         Model name (default: auto-detected)
+--api-key           API key (or use environment variable)
+--max-cost          Maximum cost in USD (default: 5.0)
+--max-iterations    Maximum iterations (default: 50)
+--no-cache          Disable caching
+--output, -o        Save results to JSON file
+--quiet, -q         Reduce output verbosity
+```
+
+### Test Command
+
+```bash
+# Quick sanity check
+uv run python main.py test --quick --model grok-4-1-fast-reasoning
+
+# Run comprehensive test suite
+uv run python main.py test \
+  --suite comprehensive \
+  --model grok-4-1-fast-reasoning \
+  --no-256k
+
+# Run unit tests
+uv run python main.py test --suite unit
+
+# Save test results
+uv run python main.py test \
+  --suite comprehensive \
+  --model grok-4-1-fast-reasoning \
+  --output test_results.json \
+  --max-cost 2.0
+```
+
+### Generate Test Data
+
+```bash
+# Generate all test types
+uv run python main.py generate --type all
+
+# Generate needle-in-haystack test
+uv run python main.py generate \
+  --type needle \
+  --tokens 256 \
+  --position middle \
+  --output-dir tests/data
+
+# Generate multi-needle test
+uv run python main.py generate \
+  --type multi \
+  --num-needles 5
+
+# Generate reasoning test
+uv run python main.py generate \
+  --type reasoning \
+  --complexity medium
+```
+
+### Real-World Examples
+
+**Example 1: Process a large log file**
+```bash
+uv run python main.py run \
+  --task "Find all ERROR entries and summarize the most common issues" \
+  --context-file application.log \
+  --model grok-4-1-fast-reasoning \
+  --max-cost 3.0 \
+  --output error_summary.json
+```
+
+**Example 2: Analyze research papers**
+```bash
+uv run python main.py run \
+  --task "Extract methodology, key findings, and limitations" \
+  --context-file paper.txt \
+  --model gpt-4o \
+  --provider openai \
+  --max-iterations 40
+```
+
+**Example 3: Process customer feedback**
+```bash
+uv run python main.py run \
+  --task "Categorize feedback by topic and sentiment, then count frequencies" \
+  --context-file customer_reviews.txt \
+  --model grok-4-1-fast-reasoning \
+  --max-cost 2.0
+```
+
+**Example 4: Code review**
+```bash
+uv run python main.py run \
+  --task "Find potential security issues and performance bottlenecks" \
+  --context-file codebase_dump.txt \
+  --model gpt-4o \
+  --provider openai
 ```
 
 ## Architecture
@@ -519,9 +761,21 @@ rlm.print_metrics()
 
 ## Examples
 
+### CLI Examples
+
+For the easiest way to get started without writing code, see the [CLI Usage](#cli-usage) section above. The CLI allows you to run tasks directly from the command line:
+
+```bash
+# Quick example with CLI
+uv run python main.py run \
+  --task "Find all mentions of 'quantum computing'" \
+  --context-file research.txt \
+  --model grok-4-1-fast-reasoning
+```
+
 ### Quickstart Examples
 
-For the simplest possible usage, start with the quickstart examples:
+For the simplest possible Python usage, start with the quickstart examples:
 
 ```bash
 # Grok quickstart (minimal example)
