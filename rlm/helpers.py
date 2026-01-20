@@ -7,6 +7,7 @@ Provides utilities for text processing, chunking, searching, and aggregation.
 import re
 from typing import List, Dict, Any, Callable, Optional, Tuple
 import hashlib
+import tiktoken
 
 
 class TextProcessor:
@@ -31,6 +32,9 @@ class TextProcessor:
         Returns:
             List of text chunks
         """
+        # Validate parameters
+        assert overlap < chunk_size, f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+
         if not preserve_paragraphs:
             # Simple character-based chunking
             chunks = []
@@ -83,33 +87,27 @@ class TextProcessor:
             List of text chunks
 
         Note:
-            Requires 'tiktoken' package. Falls back to character-based if not available.
+            Uses 'tiktoken' package for accurate token counting.
         """
-        try:
-            import tiktoken
-            encoding = tiktoken.get_encoding(encoding_name)
+        # Validate parameters
+        assert overlap_tokens < max_tokens, f"overlap_tokens ({overlap_tokens}) must be less than max_tokens ({max_tokens})"
 
-            # Encode text
-            tokens = encoding.encode(text)
+        encoding = tiktoken.get_encoding(encoding_name)
 
-            chunks = []
-            start = 0
+        # Encode text
+        tokens = encoding.encode(text)
 
-            while start < len(tokens):
-                end = start + max_tokens
-                chunk_tokens = tokens[start:end]
-                chunk_text = encoding.decode(chunk_tokens)
-                chunks.append(chunk_text)
-                start = end - overlap_tokens
+        chunks = []
+        start = 0
 
-            return chunks
+        while start < len(tokens):
+            end = start + max_tokens
+            chunk_tokens = tokens[start:end]
+            chunk_text = encoding.decode(chunk_tokens)
+            chunks.append(chunk_text)
+            start = end - overlap_tokens
 
-        except ImportError:
-            # Fallback to character-based chunking
-            # Rough approximation: 1 token ≈ 4 characters
-            char_size = max_tokens * 4
-            char_overlap = overlap_tokens * 4
-            return TextProcessor.chunk_text(text, char_size, char_overlap)
+        return chunks
 
     @staticmethod
     def smart_truncate(text: str, max_length: int, suffix: str = "...") -> str:

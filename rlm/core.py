@@ -154,7 +154,8 @@ class RecursiveLanguageModel:
 
     def _extract_code(self, text: str) -> list[str]:
         """
-        Extract all code blocks labeled as 'repl' from the LLM response.
+        Extract all code blocks from the LLM response.
+        Accepts ```repl, ```python, or plain ``` code blocks.
 
         Args:
             text: LLM response text
@@ -162,7 +163,7 @@ class RecursiveLanguageModel:
         Returns:
             List of code blocks
         """
-        matches = re.findall(r'```repl\n(.*?)\n```', text, re.DOTALL)
+        matches = re.findall(r'```(?:repl|python)?\n(.*?)\n```', text, re.DOTALL)
         return [match.strip() for match in matches] if matches else []
 
     def _llm_query(self, prompt: str, model: Optional[str] = None, parent_call_id: Optional[str] = None) -> str:
@@ -457,6 +458,8 @@ If you already found data via regex/search, trust that data - don't second-guess
         ]
 
         iteration = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 5  # Prevent infinite token burning on repeated errors
 
         # Main iteration loop
         while self.final_answer is None and iteration < max_iterations:
@@ -532,6 +535,7 @@ If you already found data via regex/search, trust that data - don't second-guess
 
             # Execute all code blocks
             all_outputs = []
+            iteration_had_error = False
 
             for i, code in enumerate(code_blocks):
                 if verbose:
@@ -579,6 +583,7 @@ If you already found data via regex/search, trust that data - don't second-guess
                             print(f"Output:\n{output[:200]}" + ("..." if len(output) > 200 else ""))
                 else:
                     feedback = f"Code block {i+1} execution failed: {error}"
+                    iteration_had_error = True
                     if verbose:
                         print(f"✗ Error: {error}")
 
@@ -590,6 +595,18 @@ If you already found data via regex/search, trust that data - don't second-guess
             ) or "All code blocks executed successfully (no output)."
 
             self.history.append({"role": "system", "content": combined_feedback})
+
+            # Track consecutive errors
+            if iteration_had_error:
+                consecutive_errors += 1
+                if consecutive_errors >= max_consecutive_errors:
+                    raise RuntimeError(
+                        f"Terminated after {consecutive_errors} consecutive REPL errors. "
+                        f"The model appears stuck in an error loop. "
+                        f"Cost so far: ${self.metrics.total_cost:.4f}, Tokens: {self.metrics.total_tokens}"
+                    )
+            else:
+                consecutive_errors = 0  # Reset on successful execution
 
             # Check if final answer was set
             if self.final_answer is not None:

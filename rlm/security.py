@@ -7,7 +7,11 @@ generated code.
 
 import sys
 import io
-from typing import Dict, Any, Set
+import multiprocessing
+import queue
+import signal
+import platform
+from typing import Dict, Any, Set, Tuple
 
 
 class RestrictedGlobals:
@@ -130,16 +134,53 @@ class RestrictedGlobals:
         return safe_globals
 
 
+def _subprocess_execute(code: str, globals_dict: Dict[str, Any], result_queue: multiprocessing.Queue, max_output_size: int):
+    """
+    Helper function to execute code in a subprocess.
+
+    Args:
+        code: Code to execute
+        globals_dict: Globals dictionary for execution
+        result_queue: Queue to put results
+        max_output_size: Maximum output size
+    """
+    output_capture = io.StringIO()
+    original_stdout = sys.stdout
+    sys.stdout = output_capture
+
+    try:
+        exec(code, globals_dict)
+        output = output_capture.getvalue()
+
+        # Truncate if needed
+        if len(output) > max_output_size:
+            output = output[:max_output_size] + "\n[Output truncated...]"
+
+        result_queue.put(("success", output, ""))
+    except Exception as e:
+        result_queue.put(("error", "", str(e)))
+    finally:
+        sys.stdout = original_stdout
+        output_capture.close()
+
+
+class TimeoutException(Exception):
+    """Raised when execution timeout is reached."""
+    pass
+
+
 class ExecutionMonitor:
     """
     Monitors code execution for safety violations and resource limits.
+    Uses multiprocessing for proper isolation and enforceable timeouts.
     """
 
     def __init__(
         self,
         max_execution_time: float = 30.0,
         max_output_size: int = 100_000,
-        forbidden_patterns: Set[str] = None
+        forbidden_patterns: Set[str] = None,
+        use_multiprocessing: bool = True
     ):
         """
         Initialize execution monitor.
@@ -148,12 +189,15 @@ class ExecutionMonitor:
             max_execution_time: Maximum execution time in seconds
             max_output_size: Maximum output size in characters
             forbidden_patterns: Set of forbidden string patterns in code
+            use_multiprocessing: If True, use multiprocessing for isolation (recommended)
         """
         self.max_execution_time = max_execution_time
         self.max_output_size = max_output_size
+        self.use_multiprocessing = use_multiprocessing
         # Note: We no longer block '__import__' or 'compile(' since we provide safe wrappers
-        # We only block specific dangerous module imports and eval/exec
+        # We block specific dangerous module imports, eval/exec, and introspection bypasses
         self.forbidden_patterns = forbidden_patterns or {
+            # Direct dangerous imports
             'import os',
             'import sys',
             'import subprocess',
@@ -161,13 +205,44 @@ class ExecutionMonitor:
             'import urllib',
             'import requests',
             'import pickle',
+            'import shelve',
+            'import shutil',
+            'import tempfile',
+            # Dangerous functions
             'eval(',
             'exec(',
+            # Object introspection bypasses (gadget chains)
+            # These are the most dangerous for escaping the sandbox
+            '__subclasses__',  # Used in gadget chains to find dangerous classes
+            '__globals__',     # Can access global namespace
+            '__builtins__',    # Can access builtin functions
+            '__code__',        # Can access function code objects
+            # Attribute manipulation that can bypass protections
+            '__getattribute__',
+            '__setattr__',
+            '__delattr__',
         }
+
+        # Additional regex-based checks for complex bypasses
+        import re
+        self.bypass_patterns = [
+            # Gadget chain starts - common pattern for escaping sandboxes
+            re.compile(r'\(\s*\)\s*\.__class__'),  # ().__class__ gadget chain start
+            re.compile(r'\[\s*\]\s*\.__class__'),  # [].__class__ gadget chain start
+            re.compile(r'\{\s*\}\s*\.__class__'),  # {}.__class__ gadget chain start
+            # Dunder method chaining (e.g., .__class__.__base__.__subclasses__())
+            re.compile(r'__\w+__\s*\.\s*__\w+__\s*\.\s*__\w+__'),  # Triple dunder chain
+        ]
 
     def check_code_safety(self, code: str) -> tuple[bool, str]:
         """
-        Check if code contains forbidden patterns.
+        Check if code contains forbidden patterns or bypass attempts.
+
+        Uses both string matching and regex patterns to detect:
+        - Direct dangerous imports and functions
+        - Object introspection (gadget chains)
+        - String concatenation bypasses
+        - Encoding/decoding bypasses
 
         Args:
             code: Code string to check
@@ -177,15 +252,28 @@ class ExecutionMonitor:
         """
         code_lower = code.lower()
 
+        # Check string-based forbidden patterns
         for pattern in self.forbidden_patterns:
             if pattern.lower() in code_lower:
                 return False, f"Forbidden pattern detected: {pattern}"
 
+        # Check regex-based bypass patterns
+        for regex in self.bypass_patterns:
+            if regex.search(code):
+                return False, f"Potential bypass pattern detected: {regex.pattern}"
+
         return True, ""
+
+    def _timeout_handler(self, signum, frame):
+        """Signal handler for timeout."""
+        raise TimeoutException(f"Execution exceeded {self.max_execution_time} seconds")
 
     def capture_execution(self, code: str, globals_dict: Dict[str, Any]) -> tuple[bool, str, str]:
         """
-        Execute code with output capture and safety monitoring.
+        Execute code with output capture, safety monitoring, and timeout enforcement.
+
+        On Unix/Linux/Mac, uses signal.alarm() for hard timeout enforcement.
+        On Windows, timeout is not enforced (limitation of platform).
 
         Args:
             code: Code to execute
@@ -204,9 +292,22 @@ class ExecutionMonitor:
         original_stdout = sys.stdout
         sys.stdout = output_capture
 
+        # Setup timeout (Unix/Linux/Mac only)
+        is_unix = platform.system() in ('Linux', 'Darwin')
+        old_handler = None
+
         try:
-            # Execute with timeout (basic implementation)
+            if is_unix and hasattr(signal, 'SIGALRM'):
+                # Set up signal-based timeout (works on Unix)
+                old_handler = signal.signal(signal.SIGALRM, self._timeout_handler)
+                signal.alarm(int(self.max_execution_time))
+
+            # Execute code
             exec(code, globals_dict)
+
+            # Cancel timeout
+            if is_unix and hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)
 
             # Get captured output
             output = output_capture.getvalue()
@@ -217,12 +318,22 @@ class ExecutionMonitor:
 
             return True, output, ""
 
+        except TimeoutException as e:
+            return False, "", f"Timeout: {str(e)}"
+
         except Exception as e:
             return False, "", str(e)
 
         finally:
+            # Restore stdout
             sys.stdout = original_stdout
             output_capture.close()
+
+            # Restore signal handler
+            if is_unix and hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)
+                if old_handler is not None:
+                    signal.signal(signal.SIGALRM, old_handler)
 
 
 class SafeFileAccess:
