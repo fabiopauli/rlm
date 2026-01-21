@@ -1,7 +1,12 @@
 """
 Demonstration of RLM processing on Huberman Lab podcast transcript
 """
+import os
+from dotenv import load_dotenv
+from rlm import RecursiveLanguageModel
 import re
+
+load_dotenv()
 
 # Read the transcript
 with open('huberman_transcript.txt', 'r') as f:
@@ -129,4 +134,62 @@ print("Full RLM run would provide comprehensive, organized summary of:")
 print("  1. All major nervous system concepts explained")
 print("  2. Complete list of actionable protocols with details")
 print("  3. Key scientific insights with supporting evidence")
+
+print("\n" + "=" * 70)
+print("RUNNING ACTUAL RLM ANALYSIS WITH grok-4-1-fast-reasoning (same as main.py command)")
+print("=" * 70)
 print()
+
+if not os.getenv("XAI_API_KEY"):
+    print("  XAI_API_KEY not set. Run `echo $XAI_API_KEY` or set it. Demo only.")
+else:
+    try:
+        print("  Initializing RLM...")
+        rlm = RecursiveLanguageModel(
+            api_key=os.getenv("XAI_API_KEY"),
+            model="grok-4-1-fast-reasoning",
+            provider="xai",
+            max_cost=2.0,
+            enable_cache=True
+        )
+        print("  Running RLM task...")
+        result = rlm.run(
+            task=task,
+            context=transcript,
+            verbose=True,
+            max_iterations=50
+        )
+        print("\n" + "="*70)
+        print("RLM RESULT:")
+        print("="*70)
+        print(result)
+        print("="*70)
+
+        # Print metrics
+        print("\nMETRICS:")
+        print("-" * 20)
+        print(f"  Total cost: ${rlm.metrics.total_cost:.4f}")
+        print(f"  Total tokens: {rlm.metrics.total_tokens:,}")
+        print(f"  Reasoning tokens: {rlm.metrics.total_completion_reasoning_tokens:,}")
+        print(f"  Sub-calls: {rlm.metrics.sub_calls}")
+        print(f"  Iterations: {rlm.metrics.iterations}")
+
+        # Save results
+        output_data = {
+            "task": task,
+            "result": result,
+            "metrics": {
+                "total_cost": rlm.metrics.total_cost,
+                "total_tokens": rlm.metrics.total_tokens,
+                "sub_calls": rlm.metrics.sub_calls,
+                "iterations": rlm.metrics.iterations
+            }
+        }
+        with open("huberman_demo_results.json", "w") as f:
+            json.dump(output_data, f, indent=2)
+        print(f"\n  Results saved to: huberman_demo_results.json")
+
+    except Exception as e:
+        import traceback
+        print(f"  ERROR: {e}")
+        print(traceback.format_exc())
